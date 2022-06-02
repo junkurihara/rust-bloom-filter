@@ -6,7 +6,7 @@ description = "Bloom filter implementation"
 license = "ISC"
 homepage = "https://github.com/jedisct1/rust-bloom-filter"
 repository = "https://github.com/jedisct1/rust-bloom-filter"
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 bit-vec = "0.6.3"
