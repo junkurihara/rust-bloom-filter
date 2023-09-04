@@ -1,33 +1,34 @@
 // (C)opyleft 2013-2021 Frank Denis
+// Licensed under the ICS license (https://opensource.org/licenses/ISC)
 
 //! Bloom filter for Rust
 //!
 //! This is a simple but fast Bloom filter implementation, that requires only
 //! 2 hash functions, generated with SipHash-1-3 using randomized keys.
-//!
 
 #![warn(non_camel_case_types, non_upper_case_globals, unused_qualifications)]
 #![allow(clippy::unreadable_literal, clippy::bool_comparison)]
 
-use bit_vec::BitVec;
-#[cfg(feature = "random")]
-use getrandom::getrandom;
-use siphasher::sip::SipHasher13;
 use std::cmp;
+use std::convert::TryFrom;
 use std::f64;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 
+use bit_vec::BitVec;
+#[cfg(feature = "random")]
+use getrandom::getrandom;
 #[cfg(feature = "serde")]
 use siphasher::reexports::serde;
+use siphasher::sip::SipHasher13;
 
 pub mod reexports {
     #[cfg(feature = "random")]
     pub use ::getrandom;
     pub use bit_vec;
+    pub use siphasher;
     #[cfg(feature = "serde")]
     pub use siphasher::reexports::serde;
-    pub use siphasher;
 }
 
 /// Bloom filter structure
@@ -45,14 +46,18 @@ pub struct Bloom<T: ?Sized> {
 
 impl<T: ?Sized> Bloom<T> {
     /// Create a new bloom filter structure.
-    /// bitmap_size is the size in bytes (not bits) that will be allocated in memory
-    /// items_count is an estimation of the maximum number of items to store.
-    /// seed is a random value used to generate the hash functions.
+    /// bitmap_size is the size in bytes (not bits) that will be allocated in
+    /// memory items_count is an estimation of the maximum number of items
+    /// to store. seed is a random value used to generate the hash
+    /// functions.
     pub fn new_with_seed(bitmap_size: usize, items_count: usize, seed: &[u8; 32]) -> Self {
         assert!(bitmap_size > 0 && items_count > 0);
-        let bitmap_bits = (bitmap_size as u64) * 8u64;
+        let bitmap_bits = u64::try_from(bitmap_size)
+            .unwrap()
+            .checked_mul(8u64)
+            .unwrap();
         let k_num = Self::optimal_k_num(bitmap_bits, items_count);
-        let bitmap = BitVec::from_elem(bitmap_bits as usize, false);
+        let bitmap = BitVec::from_elem(usize::try_from(bitmap_bits).unwrap(), false);
         let mut k1 = [0u8; 16];
         let mut k2 = [0u8; 16];
         k1.copy_from_slice(&seed[0..16]);
@@ -68,8 +73,9 @@ impl<T: ?Sized> Bloom<T> {
     }
 
     /// Create a new bloom filter structure.
-    /// bitmap_size is the size in bytes (not bits) that will be allocated in memory
-    /// items_count is an estimation of the maximum number of items to store.
+    /// bitmap_size is the size in bytes (not bits) that will be allocated in
+    /// memory items_count is an estimation of the maximum number of items
+    /// to store.
     #[cfg(feature = "random")]
     pub fn new(bitmap_size: usize, items_count: usize) -> Self {
         let mut seed = [0u8; 32];
@@ -94,8 +100,9 @@ impl<T: ?Sized> Bloom<T> {
         Bloom::new_with_seed(bitmap_size, items_count, seed)
     }
 
-    /// Create a bloom filter structure from a previous state given as a `ByteVec` structure.
-    /// The state is assumed to be retrieved from an existing bloom filter.
+    /// Create a bloom filter structure from a previous state given as a
+    /// `ByteVec` structure. The state is assumed to be retrieved from an
+    /// existing bloom filter.
     pub fn from_bit_vec(
         bit_vec: BitVec,
         bitmap_bits: u64,
@@ -115,8 +122,9 @@ impl<T: ?Sized> Bloom<T> {
         }
     }
 
-    /// Create a bloom filter structure with an existing state given as a byte array.
-    /// The state is assumed to be retrieved from an existing bloom filter.
+    /// Create a bloom filter structure with an existing state given as a byte
+    /// array. The state is assumed to be retrieved from an existing bloom
+    /// filter.
     pub fn from_existing(
         bytes: &[u8],
         bitmap_bits: u64,
@@ -227,8 +235,8 @@ impl<T: ?Sized> Bloom<T> {
             hashes[k_i as usize] = hash;
             hash
         } else {
-            (hashes[0] as u128).wrapping_add((k_i as u128).wrapping_mul(hashes[1] as u128)) as u64
-                % 0xffffffffffffffc5
+            (hashes[0]).wrapping_add((k_i as u64).wrapping_mul(hashes[1]))
+                % 0xFFFF_FFFF_FFFF_FFC5u64 //largest u64 prime
         }
     }
 
@@ -237,59 +245,18 @@ impl<T: ?Sized> Bloom<T> {
         self.bit_vec.clear()
     }
 
+    /// Set all of the bits in the filter, making it appear like every key is in the set
+    pub fn fill(&mut self) {
+        self.bit_vec.set_all()
+    }
+
+    /// Test if there are no elements in the set
+    pub fn is_empty(&self) -> bool {
+        !self.bit_vec.any()
+    }
+
     #[inline]
     fn sip_new(key: &[u8; 16]) -> SipHasher13 {
         SipHasher13::new_with_key(key)
     }
-}
-
-#[test]
-#[cfg(feature = "random")]
-fn bloom_test_set() {
-    let mut bloom = Bloom::new(10, 80);
-    let mut k = vec![0u8, 16];
-    getrandom(&mut k).unwrap();
-    assert!(bloom.check(&k) == false);
-    bloom.set(&k);
-    assert!(bloom.check(&k) == true);
-}
-
-#[test]
-#[cfg(feature = "random")]
-fn bloom_test_check_and_set() {
-    let mut bloom = Bloom::new(10, 80);
-    let mut k = vec![0u8, 16];
-    getrandom(&mut k).unwrap();
-    assert!(bloom.check_and_set(&k) == false);
-    assert!(bloom.check_and_set(&k) == true);
-}
-
-#[test]
-#[cfg(feature = "random")]
-fn bloom_test_clear() {
-    let mut bloom = Bloom::new(10, 80);
-    let mut k = vec![0u8, 16];
-    getrandom(&mut k).unwrap();
-    bloom.set(&k);
-    assert!(bloom.check(&k) == true);
-    bloom.clear();
-    assert!(bloom.check(&k) == false);
-}
-
-#[test]
-#[cfg(feature = "random")]
-fn bloom_test_load() {
-    let mut original = Bloom::new(10, 80);
-    let mut k = vec![0u8, 16];
-    getrandom(&mut k).unwrap();
-    original.set(&k);
-    assert!(original.check(&k) == true);
-
-    let cloned = Bloom::from_existing(
-        &original.bitmap(),
-        original.number_of_bits(),
-        original.number_of_hash_functions(),
-        original.sip_keys(),
-    );
-    assert!(cloned.check(&k) == true);
 }

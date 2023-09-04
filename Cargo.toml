@@ -1,17 +1,19 @@
-[project]
+[package]
 name = "bloomfilter"
-version = "1.0.9"
+version = "1.0.12"
 authors = ["Frank Denis <github@pureftpd.org>"]
 description = "Bloom filter implementation"
 license = "ISC"
 homepage = "https://github.com/jedisct1/rust-bloom-filter"
 repository = "https://github.com/jedisct1/rust-bloom-filter"
-edition = "2021"
+edition = "2018"
+keywords = ["bloom", "filter"]
+readme = "README.md"
 
 [dependencies]
 bit-vec = "0.6.3"
-getrandom = { version = "0.2.6", optional = true }
-siphasher = "0.3.10"
+getrandom = { version = "0.2.10", optional = true }
+siphasher = "1.0.0"
 
 [features]
 default = ["random"]
